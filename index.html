@@ -1,0 +1,484 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KSA PDT IST Converter</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0e141b">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Time Convert">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  /* Layout idea: three stacked zone rows, each a 24h bar aligned to the same instants, one amber cursor you drag. */
+  --bg: #eef1f4;
+  --surface: #ffffff;
+  --ink: #14202b;
+  --muted: #5b6b7a;
+  --line: #d5dce3;
+  --accent: #e8a200;
+  --accent-ink: #14202b;
+  --c-night: #24354a;
+  --c-edge: #8fa8c0;
+  --c-work: #dcebf6;
+  --font-display: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0e141b;
+    --surface: #17202a;
+    --ink: #e6edf3;
+    --muted: #93a3b3;
+    --line: #2a3745;
+    --accent: #f2b72a;
+    --accent-ink: #10151b;
+    --c-night: #0a1017;
+    --c-edge: #243649;
+    --c-work: #3f6485;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0e141b;
+  --surface: #17202a;
+  --ink: #e6edf3;
+  --muted: #93a3b3;
+  --line: #2a3745;
+  --accent: #f2b72a;
+  --accent-ink: #10151b;
+  --c-night: #0a1017;
+  --c-edge: #243649;
+  --c-work: #3f6485;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 15px;
+  line-height: 1.45;
+  padding: 24px 16px 48px;
+}
+.wrap { max-width: 1000px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+
+header h1 { margin: 0; font-family: var(--font-display); font-size: 24px; font-weight: 600; letter-spacing: -0.01em; text-wrap: balance; }
+header p { margin: 4px 0 0; color: var(--muted); }
+
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; }
+
+.controls { padding: 14px 16px; display: flex; flex-wrap: wrap; gap: 14px 20px; align-items: flex-end; }
+.field { display: flex; flex-direction: column; gap: 4px; }
+.field label, .field .lbl { font-size: 12px; color: var(--muted); font-weight: 500; }
+select, input[type="date"], input[type="time"] {
+  font: inherit; font-family: var(--font-mono); font-size: 15px;
+  color: var(--ink); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 6px;
+  padding: 7px 9px; min-height: 36px;
+}
+button {
+  font: inherit; font-size: 14px; font-weight: 500;
+  color: var(--ink); background: var(--bg);
+  border: 1px solid var(--line); border-radius: 6px;
+  padding: 7px 14px; min-height: 36px; cursor: pointer;
+}
+button:hover { border-color: var(--muted); }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+.seg { display: inline-flex; }
+.seg button { border-radius: 0; margin-left: -1px; padding: 7px 12px; }
+.seg button:first-child { border-radius: 6px 0 0 6px; margin-left: 0; }
+.seg button:last-child { border-radius: 0 6px 6px 0; }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--surface); border-color: var(--ink); position: relative; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.zones { display: flex; flex-direction: column; }
+.zone {
+  display: grid; grid-template-columns: 230px 1fr; gap: 10px 24px; align-items: center;
+  padding: 16px 16px 12px;
+}
+.zone + .zone { border-top: 1px solid var(--line); }
+.info { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.name { font-weight: 600; font-size: 16px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.abbr { font-family: var(--font-mono); font-size: 12px; font-weight: 600; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; }
+.off { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+.time { font-family: var(--font-mono); font-size: 34px; font-weight: 500; letter-spacing: -0.02em; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.time small { font-size: 14px; font-weight: 500; margin-left: 6px; color: var(--muted); letter-spacing: 0; }
+.dateline { display: flex; flex-wrap: wrap; gap: 6px 10px; align-items: center; color: var(--muted); font-size: 13px; }
+.badge { font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 99px; background: var(--accent); color: var(--accent-ink); }
+.state { display: inline-flex; align-items: center; gap: 6px; }
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--c-night); border: 1px solid var(--line); }
+.dot.edge { background: var(--c-edge); }
+.dot.work { background: var(--c-work); }
+
+.lane-box { padding: 0 14px; min-width: 0; }
+.lane { position: relative; touch-action: pan-y; user-select: none; -webkit-user-select: none; cursor: ew-resize; border-radius: 6px; }
+.cells { display: flex; height: 46px; border-radius: 6px; overflow: hidden; }
+.cells i { flex: 1 1 0; display: block; }
+.cells i.n { background: var(--c-night); }
+.cells i.e { background: var(--c-edge); }
+.cells i.w { background: var(--c-work); }
+.midnight { position: absolute; top: 0; height: 46px; width: 2px; margin-left: -1px; background: var(--surface); opacity: .85; pointer-events: none; }
+.axis { position: relative; height: 22px; margin-top: 4px; font-family: var(--font-mono); font-size: 11px; color: var(--muted); pointer-events: none; }
+.axis span { position: absolute; top: 2px; transform: translateX(-50%); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.axis span.day { color: var(--ink); font-weight: 600; }
+.cursor { position: absolute; top: -6px; height: 58px; width: 0; pointer-events: none; }
+.cursor::before { content: ""; position: absolute; left: -1.5px; top: 0; bottom: 0; width: 3px; background: var(--accent); border-radius: 2px; box-shadow: 0 0 0 1px var(--surface); }
+.cursor::after { content: ""; position: absolute; left: -9px; top: 15px; width: 18px; height: 18px; border-radius: 50%; background: var(--accent); border: 3px solid var(--surface); box-shadow: 0 1px 4px rgba(0,0,0,.35); }
+
+.summary { padding: 14px 16px; display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; justify-content: space-between; }
+.summary .txt { font-family: var(--font-mono); font-size: 13px; user-select: all; -webkit-user-select: all; overflow-wrap: anywhere; flex: 1 1 320px; }
+.note { color: var(--muted); font-size: 13px; padding: 0 2px; }
+.note b { color: var(--ink); font-weight: 600; }
+.legend { display: flex; flex-wrap: wrap; gap: 6px 16px; color: var(--muted); font-size: 12px; padding: 0 2px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; }
+
+@media (max-width: 720px) {
+  .zone { grid-template-columns: 1fr; }
+  .info { display: grid; grid-template-columns: 1fr auto; column-gap: 12px; align-items: center; }
+  .name { grid-column: 1; grid-row: 1; }
+  .off { grid-column: 1; grid-row: 2; }
+  .time { grid-column: 2; grid-row: 1 / span 2; text-align: right; font-size: 30px; }
+  .dateline { grid-column: 1 / span 2; grid-row: 3; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cursor { transition: left .05s linear; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>KSA PDT IST Converter</h1>
+    <p>Pick a time in any zone, or drag the amber marker along any bar. All three bars show the same moment.</p>
+  </header>
+
+  <section class="panel controls" aria-label="Set a time">
+    <div class="field">
+      <label for="src">Enter time in</label>
+      <select id="src">
+        <option value="ksa">KSA (Riyadh)</option>
+        <option value="la">Pacific (Los Angeles)</option>
+        <option value="ist">IST (India)</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="date">Date</label>
+      <input type="date" id="date">
+    </div>
+    <div class="field">
+      <label for="clock">Time</label>
+      <input type="time" id="clock" step="60">
+    </div>
+    <div class="field">
+      <span class="lbl">Clock</span>
+      <div class="seg" role="group" aria-label="Clock format">
+        <button type="button" id="f12" aria-pressed="true">12h</button>
+        <button type="button" id="f24" aria-pressed="false">24h</button>
+      </div>
+    </div>
+    <button type="button" id="now" class="primary">Now</button>
+  </section>
+
+  <section class="panel zones" id="zones" aria-label="Time zones">
+    <div class="zone" data-id="ksa">
+      <div class="info">
+        <div class="name">Riyadh <span class="abbr" data-r="abbr">KSA</span></div>
+        <div class="off" data-r="off"></div>
+        <div class="time" data-r="time"></div>
+        <div class="dateline"><span data-r="date"></span><span class="badge" data-r="badge" hidden></span><span class="state"><span class="dot" data-r="dot"></span><span data-r="state"></span></span></div>
+      </div>
+      <div class="lane-box"><div class="lane" tabindex="0" role="slider" aria-label="Time on the KSA bar"><div class="cells"></div><div class="axis"></div><div class="cursor"></div></div></div>
+    </div>
+    <div class="zone" data-id="la">
+      <div class="info">
+        <div class="name">Los Angeles <span class="abbr" data-r="abbr">PDT</span></div>
+        <div class="off" data-r="off"></div>
+        <div class="time" data-r="time"></div>
+        <div class="dateline"><span data-r="date"></span><span class="badge" data-r="badge" hidden></span><span class="state"><span class="dot" data-r="dot"></span><span data-r="state"></span></span></div>
+      </div>
+      <div class="lane-box"><div class="lane" tabindex="0" role="slider" aria-label="Time on the Pacific bar"><div class="cells"></div><div class="axis"></div><div class="cursor"></div></div></div>
+    </div>
+    <div class="zone" data-id="ist">
+      <div class="info">
+        <div class="name">India <span class="abbr" data-r="abbr">IST</span></div>
+        <div class="off" data-r="off"></div>
+        <div class="time" data-r="time"></div>
+        <div class="dateline"><span data-r="date"></span><span class="badge" data-r="badge" hidden></span><span class="state"><span class="dot" data-r="dot"></span><span data-r="state"></span></span></div>
+      </div>
+      <div class="lane-box"><div class="lane" tabindex="0" role="slider" aria-label="Time on the IST bar"><div class="cells"></div><div class="axis"></div><div class="cursor"></div></div></div>
+    </div>
+  </section>
+
+  <div class="legend" aria-label="Legend">
+    <span><i class="dot work"></i>Business hours 9:00 to 18:00</span>
+    <span><i class="dot edge"></i>Early or late 6:00 to 9:00, 18:00 to 21:00</span>
+    <span><i class="dot"></i>Night 21:00 to 6:00</span>
+    <span>Bars cover one day in Riyadh. Badges compare each date with Riyadh.</span>
+  </div>
+  <div class="note" id="dst" hidden></div>
+
+  <section class="panel summary" aria-label="Summary">
+    <div class="txt" id="sum"></div>
+    <button type="button" id="copy">Copy</button>
+  </section>
+</div>
+
+<script>
+(function () {
+  var HOUR = 3600000, DAY = 24 * HOUR, SNAP = 5 * 60000;
+  var ZONES = [
+    { id: 'ksa', tz: 'Asia/Riyadh' },
+    { id: 'la',  tz: 'America/Los_Angeles' },
+    { id: 'ist', tz: 'Asia/Kolkata' }
+  ];
+  var DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+  var is24 = false;
+  try { is24 = localStorage.getItem('tzc-24h') === '1'; } catch (e) {}
+
+  var start = 0, t = 0;          // window start (UTC ms, Riyadh midnight) and cursor offset into it
+  var builtStep = 0;
+  var fmtCache = {};
+
+  function zone(id) { return ZONES.filter(function (z) { return z.id === id; })[0]; }
+  function pad(n) { return (n < 10 ? '0' : '') + n; }
+
+  function fmt(tz) {
+    return fmtCache[tz] || (fmtCache[tz] = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz, hourCycle: 'h23', year: 'numeric', month: 'numeric', day: 'numeric',
+      hour: 'numeric', minute: 'numeric', second: 'numeric'
+    }));
+  }
+  function parts(tz, ms) {
+    var o = {}, ps = fmt(tz).formatToParts(ms);
+    for (var i = 0; i < ps.length; i++) if (ps[i].type !== 'literal') o[ps[i].type] = +ps[i].value;
+    return { y: o.year, m: o.month, d: o.day, h: o.hour % 24, mi: o.minute, s: o.second };
+  }
+  function offsetMs(tz, ms) {
+    var p = parts(tz, ms);
+    return Date.UTC(p.y, p.m - 1, p.d, p.h, p.mi, p.s) - ms;
+  }
+  function wallToUTC(tz, y, m, d, h, mi) {
+    var g = Date.UTC(y, m - 1, d, h, mi);
+    var o1 = offsetMs(tz, g), r = g - o1, o2 = offsetMs(tz, r);
+    if (o2 !== o1) r = g - o2;
+    return r;
+  }
+  function riyadhMidnight(ms) {
+    var p = parts('Asia/Riyadh', ms);
+    return Date.UTC(p.y, p.m - 1, p.d) - 3 * HOUR;
+  }
+  function offLabel(o) {
+    var mins = o / 60000, a = Math.abs(mins), h = Math.floor(a / 60), m = a % 60;
+    return 'UTC' + (mins < 0 ? '−' : '+') + h + (m ? ':' + pad(m) : '');
+  }
+  function abbrOf(z, ms) {
+    if (z.id === 'ksa') return 'KSA';
+    if (z.id === 'ist') return 'IST';
+    var ps = new Intl.DateTimeFormat('en-US', { timeZone: z.tz, timeZoneName: 'short' }).formatToParts(ms);
+    for (var i = 0; i < ps.length; i++) if (ps[i].type === 'timeZoneName') return ps[i].value;
+    return 'PT';
+  }
+  function dateLabel(p) {
+    return DAYS[new Date(Date.UTC(p.y, p.m - 1, p.d)).getUTCDay()] + ' ' + p.d + ' ' + MONTHS[p.m - 1];
+  }
+  function clockText(h, mi) {
+    return is24 ? pad(h) + ':' + pad(mi) : ((h % 12) || 12) + ':' + pad(mi) + ' ' + (h < 12 ? 'AM' : 'PM');
+  }
+  function clockHTML(h, mi) {
+    return is24 ? pad(h) + ':' + pad(mi) : ((h % 12) || 12) + ':' + pad(mi) + '<small>' + (h < 12 ? 'AM' : 'PM') + '</small>';
+  }
+  function band(h) { return (h >= 9 && h < 18) ? 'w' : ((h >= 6 && h < 9) || (h >= 18 && h < 21)) ? 'e' : 'n'; }
+  function tickText(h) { return is24 ? String(h) : ((h % 12) || 12) + (h < 12 ? 'a' : 'p'); }
+
+  var rows = {};
+  ZONES.forEach(function (z) {
+    var el = document.querySelector('.zone[data-id="' + z.id + '"]');
+    var r = { el: el, lane: el.querySelector('.lane'), cells: el.querySelector('.cells'), axis: el.querySelector('.axis'), cursor: el.querySelector('.cursor') };
+    ['abbr','off','time','date','badge','dot','state'].forEach(function (k) { r[k] = el.querySelector('[data-r="' + k + '"]'); });
+    rows[z.id] = r;
+  });
+  var $src = document.getElementById('src'), $date = document.getElementById('date'), $clock = document.getElementById('clock');
+
+  function stepForWidth(w) { return w >= 760 ? 1 : (w >= 420 ? 2 : 3); }
+
+  function buildTracks() {
+    var w = rows.ksa.lane.clientWidth || 600;
+    var step = stepForWidth(w);
+    builtStep = step;
+    ZONES.forEach(function (z) {
+      var r = rows[z.id], cells = '', axis = '';
+      for (var i = 0; i < 48; i++) {
+        var p = parts(z.tz, start + i * 30 * 60000);
+        cells += '<i class="' + band(p.h + p.mi / 60) + '"></i>';
+      }
+      var marks = '';
+      for (var j = 0; j <= 48; j++) {
+        var q = parts(z.tz, start + j * 30 * 60000);
+        if (q.mi !== 0) continue;
+        var left = (j / 48 * 100).toFixed(3) + '%';
+        if (q.h === 0) {
+          if (j > 0 && j < 48) marks += '<div class="midnight" style="left:' + left + '"></div>';
+          axis += '<span class="day" style="left:' + left + '">' + q.d + ' ' + MONTHS[q.m - 1] + '</span>';
+        } else if (q.h % step === 0) {
+          axis += '<span style="left:' + left + '">' + tickText(q.h) + '</span>';
+        }
+      }
+      r.cells.innerHTML = cells;
+      r.axis.innerHTML = axis;
+      var old = r.lane.querySelectorAll('.midnight');
+      for (var k = 0; k < old.length; k++) old[k].remove();
+      r.cells.insertAdjacentHTML('afterend', marks);
+    });
+    var la = zone('la');
+    var o0 = offsetMs(la.tz, start), o1 = offsetMs(la.tz, start + DAY - 60000);
+    var n = document.getElementById('dst');
+    if (o0 !== o1) {
+      var from = abbrOf(la, start), to = abbrOf(la, start + DAY - 60000);
+      n.innerHTML = '<b>US clocks change on this day.</b> Los Angeles moves from ' + from + ' to ' + to + ', so the Pacific bar shifts by one hour partway across.';
+      n.hidden = false;
+    } else { n.hidden = true; }
+  }
+
+  function render(skipInputs) {
+    var inst = start + t;
+    var kp = parts('Asia/Riyadh', inst);
+    var kDay = Date.UTC(kp.y, kp.m - 1, kp.d);
+    var sum = [];
+    ZONES.forEach(function (z) {
+      var r = rows[z.id], p = parts(z.tz, inst), ab = abbrOf(z, inst);
+      r.abbr.textContent = ab;
+      r.off.textContent = offLabel(offsetMs(z.tz, inst));
+      r.time.innerHTML = clockHTML(p.h, p.mi);
+      r.date.textContent = dateLabel(p);
+      var diff = Math.round((Date.UTC(p.y, p.m - 1, p.d) - kDay) / DAY);
+      if (diff !== 0) { r.badge.hidden = false; r.badge.textContent = diff < 0 ? 'Previous day' : 'Next day'; }
+      else r.badge.hidden = true;
+      var b = band(p.h);
+      r.dot.className = 'dot ' + (b === 'w' ? 'work' : b === 'e' ? 'edge' : '');
+      r.state.textContent = b === 'w' ? 'Business hours' : b === 'e' ? 'Early or late' : 'Night';
+      r.cursor.style.left = (t / DAY * 100) + '%';
+      var mins = Math.round(t / 60000);
+      r.lane.setAttribute('aria-valuemin', 0);
+      r.lane.setAttribute('aria-valuemax', 1440);
+      r.lane.setAttribute('aria-valuenow', mins);
+      r.lane.setAttribute('aria-valuetext', clockText(p.h, p.mi) + ' ' + ab + ', ' + dateLabel(p));
+      sum.push(dateLabel(p) + ' ' + clockText(p.h, p.mi) + ' ' + ab);
+    });
+    document.getElementById('sum').textContent = sum.join('  =  ');
+    if (!skipInputs) {
+      var sp = parts(zone($src.value).tz, inst);
+      $date.value = sp.y + '-' + pad(sp.m) + '-' + pad(sp.d);
+      $clock.value = pad(sp.h) + ':' + pad(sp.mi);
+    }
+  }
+
+  function setInstant(ms) {
+    var ns = riyadhMidnight(ms);
+    var changed = ns !== start;
+    start = ns;
+    t = Math.max(0, Math.min(DAY - 60000, ms - start));
+    if (changed) buildTracks();
+    render(false);
+  }
+
+  function fromInputs() {
+    if (!$date.value || !$clock.value) return;
+    var d = $date.value.split('-').map(Number), c = $clock.value.split(':').map(Number);
+    if (d.length < 3 || c.length < 2 || isNaN(d[0]) || isNaN(c[0])) return;
+    setInstant(wallToUTC(zone($src.value).tz, d[0], d[1], d[2], c[0], c[1]));
+  }
+
+  function moveTo(lane, e) {
+    var rect = lane.getBoundingClientRect();
+    var f = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    t = Math.min(Math.round(f * DAY / SNAP) * SNAP, DAY - SNAP);
+    render(false);
+  }
+
+  ZONES.forEach(function (z) {
+    var lane = rows[z.id].lane, dragging = false;
+    lane.addEventListener('pointerdown', function (e) {
+      dragging = true;
+      try { lane.setPointerCapture(e.pointerId); } catch (x) {}
+      moveTo(lane, e);
+    });
+    lane.addEventListener('pointermove', function (e) { if (dragging) moveTo(lane, e); });
+    lane.addEventListener('pointerup', function () { dragging = false; });
+    lane.addEventListener('pointercancel', function () { dragging = false; });
+    lane.addEventListener('keydown', function (e) {
+      var d = 0;
+      if (e.key === 'ArrowRight' || e.key === 'ArrowUp') d = e.shiftKey ? 60 : 5;
+      else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') d = e.shiftKey ? -60 : -5;
+      else if (e.key === 'PageUp') d = 60;
+      else if (e.key === 'PageDown') d = -60;
+      else if (e.key === 'Home') { t = 0; render(false); e.preventDefault(); return; }
+      else if (e.key === 'End') { t = DAY - SNAP; render(false); e.preventDefault(); return; }
+      else return;
+      e.preventDefault();
+      t = Math.max(0, Math.min(DAY - SNAP, t + d * 60000));
+      render(false);
+    });
+  });
+
+  $date.addEventListener('input', fromInputs);
+  $clock.addEventListener('input', fromInputs);
+  $src.addEventListener('change', function () { render(false); });
+  document.getElementById('now').addEventListener('click', function () {
+    setInstant(Math.floor(Date.now() / 60000) * 60000);
+  });
+
+  function setFormat(v) {
+    is24 = v;
+    document.getElementById('f24').setAttribute('aria-pressed', v);
+    document.getElementById('f12').setAttribute('aria-pressed', !v);
+    try { localStorage.setItem('tzc-24h', v ? '1' : '0'); } catch (e) {}
+    buildTracks(); render(true);
+  }
+  document.getElementById('f12').addEventListener('click', function () { setFormat(false); });
+  document.getElementById('f24').addEventListener('click', function () { setFormat(true); });
+
+  var copyBtn = document.getElementById('copy');
+  copyBtn.addEventListener('click', function () {
+    var txt = document.getElementById('sum').textContent;
+    var done = function (m) { copyBtn.textContent = m; setTimeout(function () { copyBtn.textContent = 'Copy'; }, 1800); };
+    try {
+      navigator.clipboard.writeText(txt).then(function () { done('Copied'); }, function () { done('Select the text'); });
+    } catch (e) { done('Select the text'); }
+  });
+
+  var rt;
+  window.addEventListener('resize', function () {
+    clearTimeout(rt);
+    rt = setTimeout(function () {
+      var s = stepForWidth(rows.ksa.lane.clientWidth);
+      if (s !== builtStep) { buildTracks(); render(true); }
+    }, 120);
+  });
+
+  document.getElementById('f24').setAttribute('aria-pressed', is24);
+  document.getElementById('f12').setAttribute('aria-pressed', !is24);
+  setInstant(Math.floor(Date.now() / 60000) * 60000);
+
+  if ('serviceWorker' in navigator && location.protocol !== 'file:') {
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('sw.js').catch(function () {});
+    });
+  }
+})();
+</script>
+</body>
+</html>
